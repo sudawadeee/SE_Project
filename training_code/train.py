@@ -14,13 +14,7 @@ from tqdm import tqdm
 import time
 
 import config
-from models import (
-    get_efficientnet_b2, get_efficientnet_b3, get_efficientnet_b4,
-    get_resnet50, get_resnet101,
-    get_densenet121,
-    get_mobilenet_v3_large,
-    get_vit_base
-)
+from models import get_efficientnet_b2
 from utils.dataset import get_dataloaders
 from utils.metrics import calculate_metrics
 from utils.visualization import plot_training_history, plot_confusion_matrix
@@ -43,13 +37,6 @@ def get_model(model_name, num_classes=22, pretrained=True):
     """Get model by name"""
     models_dict = {
         'efficientnet_b2': get_efficientnet_b2,
-        'efficientnet_b3': get_efficientnet_b3,
-        'efficientnet_b4': get_efficientnet_b4,
-        'resnet50': get_resnet50,
-        'resnet101': get_resnet101,
-        'densenet121': get_densenet121,
-        'mobilenet_v3': get_mobilenet_v3_large,
-        'vit_base': get_vit_base,
     }
     
     if model_name not in models_dict:
@@ -296,10 +283,8 @@ def train(model_name, epochs=30, batch_size=32, lr=0.001, gamma=2.0):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train skin disease classification model')
-    parser.add_argument('--model', type=str, required=True,
-                        choices=['efficientnet_b2', 'efficientnet_b3', 'efficientnet_b4',
-                                'resnet50', 'resnet101', 'densenet121',
-                                'mobilenet_v3', 'vit_base'],
+    parser.add_argument('--model', type=str, default='efficientnet_b2',
+                        choices=['efficientnet_b2'],
                         help='Model architecture to train')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
