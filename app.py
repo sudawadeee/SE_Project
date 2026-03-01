@@ -105,7 +105,7 @@ def chat():
     {context}
     """
 
-    # 3. ส่งคำถามไปที่ Gemini
+    # 3. ส่งคำถามไปที่ chatbot
     response = client_rag.chat.completions.create(
         model=MODEL_NAME,
         messages=[
