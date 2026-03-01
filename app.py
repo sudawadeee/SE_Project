@@ -58,3 +58,61 @@ def predict():
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
+
+# --- ส่วนที่เพิ่มเข้ามาใหม่ (จากโค้ด RAG ของเพื่อน) ---
+from openai import OpenAI
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+# ตั้งค่า API ตามของเพื่อนคุณ
+API_KEY = "sk_8BB2YyFppfr1z8Sk4mEfgc4AWLDTsjR4nXn2gsiUhAMdMWY1Jv1Yquin9EhSgf46"
+BASE_URL = "https://gen.ai.kku.ac.th/api/v1"
+MODEL_NAME = "gemini-3.1-pro-preview"
+
+client_rag = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+
+# เตรียมข้อมูล Knowledge Base ของเพื่อน
+documents = [
+    "โรคผื่นภูมิแพ้ผิวหนัง (Atopic Dermatitis) มักมีอาการผิวแห้ง คันมาก และมีผื่นแดงตามข้อพับ",
+    "โรคสะเก็ดเงิน (Psoriasis) เป็นโรคอุบัติซ้ำที่มีผื่นหนา ขอบชัด มีสะเก็ดสีเงิน มักพบบริเวณข้อศอกและหัวเข่า",
+    "สิว (Acne Vulgaris) เกิดจากการอุดตันของรูขุมขนและความมันบนใบหน้า มีหลายประเภท ได้แก่ สิวอุดตัน สิวอักเสบ สิวไม่มีหัว",
+    "การรักษาสิวเบื้องต้น: ยาทา Benzoyl Peroxide (BP) ช่วยฆ่าเชื้อแบคทีเรียและลดการอักเสบ, ยาทา Salicylic Acid (BHA) ช่วยผลัดเซลล์ผิวและสลายการอุดตัน",
+    "การดูแลผิวเป็นสิว: ควรล้างหน้า 2 ครั้งต่อวันด้วยคลีนเซอร์สูตรอ่อนโยน ไม่ควรสครับหน้า หลีกเลี่ยงการบีบหรือแกะสิว"
+    # ... คุณสามารถก๊อปปี้ documents ของเพื่อนมาใส่ให้ครบได้เลยครับ ...
+]
+
+# สร้าง Vector Database (รันครั้งเดียวตอนเริ่ม Server)
+embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
+vectorstore = Chroma.from_texts(texts=documents, embedding=embeddings)
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    data = request.json
+    user_query = data.get('message')
+    
+    if not user_query:
+        return jsonify({"reply": "กรุณาพิมพ์คำถามค่ะ"})
+
+    # 1. ค้นหาข้อมูล (Retrieval)
+    docs = vectorstore.similarity_search(user_query, k=4)
+    context = "\n".join([f"- {d.page_content}" for d in docs])
+
+    # 2. สร้าง Prompt
+    system_prompt = f"""คุณคือผู้ช่วยอัจฉริยะด้านโรคผิวหนัง 
+    จงตอบคำถามโดยอ้างอิงและใช้ข้อมูลใน "ข้อมูลอ้างอิง" เป็นหลัก
+    ข้อมูลอ้างอิง:
+    {context}
+    """
+
+    # 3. ส่งคำถามไปที่ Gemini
+    response = client_rag.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query},
+        ],
+        temperature=0.1
+    )
+    
+    return jsonify({"reply": response.choices[0].message.content})

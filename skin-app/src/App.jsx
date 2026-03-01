@@ -1,19 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+
+// --- การตั้งค่า: แยก URL ของแต่ละ Service ---
+const CLASSIFICATION_URL = 'http://127.0.0.1:5000'; // บริการตรวจโรค (ของคุณ)
+const CHATBOT_URL = 'http://127.0.0.1:5001';       // บริการแชตบอท (ของเพื่อน)
 
 export default function App() {
+  // สถานะสำหรับระบบตรวจโรค
   const [file, setFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showResult, setShowResult] = useState(false);
-  
-  // State สำหรับเก็บผลลัพธ์จริงจาก AI
-  const [result, setResult] = useState({
-    label: "",
-    confidence: 0,
-    insight: "",
-    status: "Analysis Complete"
-  });
+  const [result, setResult] = useState({ label: "", confidence: 0, insight: "" });
 
+  // สถานะสำหรับระบบแชตบอท
+  const [chatInput, setChatInput] = useState("");
+  const [messages, setMessages] = useState([
+    { role: 'bot', text: "สวัสดีครับ ผมคือ Dr. AI Assistant ยินดีที่ได้ช่วยเหลือครับ คุณสามารถสอบถามข้อมูลเกี่ยวกับสุขภาพผิวหนังได้ที่นี่เลย" }
+  ]);
+  const chatEndRef = useRef(null);
+
+  // เลื่อนหน้าจอแชตลงล่างสุดอัตโนมัติ
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // ฟังก์ชันอัปโหลดรูปภาพ
   const handleFileUpload = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
@@ -23,159 +34,173 @@ export default function App() {
     }
   };
 
+  // ฟังก์ชันส่งรูปไปวิเคราะห์ (พอร์ต 5000)
   const handleAnalyze = async () => {
-    if (!file) return alert("Please upload a photo first!");
-    
+    if (!file) return alert("กรุณาอัปโหลดรูปภาพก่อนทำการวิเคราะห์ครับ");
     setIsAnalyzing(true);
-
-    // 1. เตรียมข้อมูลรูปภาพเพื่อส่งไปที่ API
     const formData = new FormData();
-    formData.append('file', file); 
+    formData.append('file', file);
 
     try {
-      // 2. ส่ง request ไปยัง Backend (Flask ที่รันอยู่ที่พอร์ต 5000)
-      const response = await fetch('http://127.0.0.1:5000/api/predict', {
+      const response = await fetch(`${CLASSIFICATION_URL}/api/predict`, {
         method: 'POST',
         body: formData,
       });
-
-      if (!response.ok) throw new Error("Backend connection failed");
-
       const data = await response.json();
-
-      // 3. นำข้อมูลจริงจาก AI มาอัปเดต State
-      setResult({
-        label: data.label,
-        confidence: data.confidence,
-        insight: `The AI analysis suggests this condition is ${data.label}. Please consult a dermatologist for a definitive diagnosis.`,
-        status: "Self-care Sufficient"
-      });
-
-      setShowResult(true);
+      if (data.label) {
+        setResult({
+          label: data.label,
+          confidence: data.confidence,
+          insight: `จากการวิเคราะห์เบื้องต้นพบความเป็นไปได้ว่าเป็น ${data.label} คุณสามารถพิมพ์ถามวิธีการดูแลตัวเองได้จากช่องทางแชตด้านขวามือครับ`
+        });
+        setShowResult(true);
+        // ส่งข้อความแจ้งเตือนในแชตอัตโนมัติ
+        setMessages(prev => [...prev, { role: 'bot', text: `ผลวิเคราะห์ออกมาแล้วครับ: ${data.label} (ความแม่นยำ ${data.confidence}%) มีคำถามเพิ่มเติมเกี่ยวกับอาการนี้ไหมครับ?` }]);
+      }
     } catch (error) {
-      console.error("Error:", error);
-      alert("Cannot connect to AI Server. Please ensure 'python app.py' is running!");
+      alert("ไม่สามารถติดต่อบริการวิเคราะห์โรคได้ (พอร์ต 5000) กรุณาตรวจสอบการรันเซิร์ฟเวอร์");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  // ฟังก์ชันส่งข้อความแชต (พอร์ต 5001)
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const userMsg = { role: 'user', text: chatInput };
+    setMessages(prev => [...prev, userMsg]);
+    const currentInput = chatInput;
+    setChatInput("");
+
+    try {
+      const response = await fetch(`${CHATBOT_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: currentInput }),
+      });
+      const data = await response.json();
+      setMessages(prev => [...prev, { role: 'bot', text: data.reply || data.response }]);
+    } catch (error) {
+      setMessages(prev => [...prev, { role: 'bot', text: "ขออภัยครับ บริการแชตบอท (พอร์ต 5001) ขัดข้องชั่วคราว" }]);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      <header className="bg-white shadow-sm py-4 px-6 flex justify-between items-center border-b border-gray-200">
-        <h1 className="text-xl font-bold text-slate-800">AI Skin Assistant</h1>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+      {/* ส่วนหัวของเว็บ */}
+      <header className="bg-white shadow-sm py-4 px-8 border-b flex items-center gap-3 sticky top-0 z-20">
+        <div className="bg-[#117b6f] p-2 rounded-lg text-white font-bold">AI</div>
+        <h1 className="text-xl font-black text-slate-800 tracking-tight uppercase">AI Skin Assistant</h1>
       </header>
 
       <main className="flex-1 flex overflow-hidden">
-        {/* ด้านซ้าย: พื้นที่ทำงานหลัก */}
-        <section className="flex-1 p-8 overflow-y-auto">
-          <div className="max-w-3xl mx-auto">
-            
-            <div className="mb-6 flex items-center gap-2 text-slate-800 font-bold text-lg cursor-pointer" onClick={() => setShowResult(false)}>
-              <span className="text-slate-500">&lt;</span>
-              <h2>{showResult ? "Result" : "New Assessment"}</h2>
-            </div>
-
+        {/* --- ส่วนซ้าย: ระบบวิเคราะห์รูปภาพ --- */}
+        <section className="flex-1 p-8 overflow-y-auto bg-[#f8fafc]">
+          <div className="max-w-4xl mx-auto">
             {!showResult ? (
-              /* --- ส่วนที่ 1: หน้าอัปโหลดรูป --- */
-              <>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-16 flex flex-col items-center justify-center bg-white mb-6">
+              <div className="space-y-6 animate-in fade-in duration-700">
+                <div className="bg-white border-2 border-dashed border-slate-300 rounded-3xl p-16 flex flex-col items-center justify-center transition-all hover:border-[#117b6f] hover:bg-teal-50/20 group">
                   {imagePreview ? (
-                    <img src={imagePreview} className="max-h-64 rounded-lg mb-4 shadow-md" alt="Preview" />
+                    <img src={imagePreview} className="max-h-80 rounded-2xl shadow-xl mb-6 border-4 border-white" alt="ตัวอย่างรูปภาพ" />
                   ) : (
-                    <div className="text-teal-600 mb-4 bg-green-50 p-4 rounded-full">
-                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <div className="text-teal-600 mb-6 bg-teal-50 p-6 rounded-full group-hover:scale-110 transition-transform">
+                      <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     </div>
                   )}
-                  <p className="text-slate-700 font-medium mb-1">Click to upload or drag & drop</p>
-                  <p className="text-slate-400 text-sm">Supported formats: JPG, PNG</p>
+                  <h3 className="text-xl font-bold text-slate-700 mb-1">อัปโหลดรูปภาพบริเวณผิวหนัง</h3>
+                  <p className="text-slate-400 text-sm mb-6">รองรับไฟล์รูปแบบ JPG, PNG</p>
                   <input type="file" className="hidden" id="file-upload" onChange={handleFileUpload} />
-                  <label htmlFor="file-upload" className="mt-6 px-6 py-2 border border-slate-300 rounded-md cursor-pointer hover:bg-slate-50 text-sm font-medium text-slate-700">
-                    {file ? "Change Photo" : "Browse Files"}
+                  <label htmlFor="file-upload" className="px-8 py-3 bg-white border border-slate-200 rounded-full cursor-pointer hover:shadow-md transition-all font-bold text-slate-600">
+                    {file ? "เปลี่ยนรูปภาพ" : "เลือกรูปภาพจากเครื่อง"}
                   </label>
                 </div>
-
                 <button 
-                  onClick={handleAnalyze}
+                  onClick={handleAnalyze} 
                   disabled={isAnalyzing || !file}
-                  className={`w-full py-4 rounded-md font-bold text-white transition shadow-sm ${isAnalyzing || !file ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#117b6f] hover:bg-[#0e635a]'}`}
+                  className={`w-full py-5 rounded-2xl font-black text-white text-xl shadow-lg transition-all ${isAnalyzing || !file ? 'bg-slate-300' : 'bg-[#117b6f] hover:bg-[#0c5c53] shadow-teal-200 hover:-translate-y-1'}`}
                 >
-                  {isAnalyzing ? "Analyzing... Please wait" : "Analyze Condition"}
+                  {isAnalyzing ? "🔬 กำลังวิเคราะห์..." : "เริ่มการวินิจฉัย"}
                 </button>
-              </>
+              </div>
             ) : (
-              /* --- ส่วนที่ 2: หน้าแสดงผลลัพธ์ (เชื่อมข้อมูลจริง) --- */
-              <div className="space-y-6">
-                <div className="rounded-xl overflow-hidden shadow-lg">
-                  <img src={imagePreview} className="w-full h-64 object-cover" alt="Result" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in slide-in-from-bottom-4 duration-500">
+                {/* ฝั่งซ้าย: แสดงรูปที่ตรวจ */}
+                <div className="space-y-4">
+                  <div className="bg-white p-3 rounded-3xl shadow-xl border border-slate-100">
+                    <img src={imagePreview} className="w-full h-[450px] object-cover rounded-2xl shadow-inner" alt="ผลการตรวจ" />
+                  </div>
                 </div>
-
-                <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm relative">
-                    <div className="absolute top-4 right-4 bg-green-50 text-green-600 text-xs font-bold px-3 py-1 rounded-full border border-green-200">
-                      ✓ {result.status}
-                    </div>
+                {/* ฝั่งขวา: รายละเอียดผลลัพธ์ */}
+                <div className="bg-white rounded-3xl p-8 shadow-xl border-t-8 border-[#117b6f] flex flex-col">
+                  <div className="flex-1">
+                    <span className="bg-teal-100 text-[#117b6f] text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">ผลการตรวจโดย AI</span>
+                    <h3 className="text-4xl font-black text-slate-800 mt-4 mb-2">{result.label}</h3>
                     
-                    <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Analysis Result</p>
-                    <h3 className="text-2xl font-bold text-slate-800 mb-6">{result.label}</h3>
-
-                    <div className="mb-8">
-                      <div className="flex justify-between text-sm font-bold mb-2">
-                        <span className="text-slate-600">AI Confidence</span>
-                        <span className="text-teal-600">{result.confidence}%</span>
+                    <div className="my-8">
+                      <div className="flex justify-between items-end mb-2">
+                        <span className="text-slate-400 text-xs font-bold uppercase">ระดับความมั่นใจ</span>
+                        <span className="text-2xl font-black text-[#117b6f]">{result.confidence}%</span>
                       </div>
-                      <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                        <div className="bg-[#117b6f] h-full rounded-full transition-all duration-1000" style={{ width: `${result.confidence}%` }}></div>
+                      <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden border border-slate-50">
+                        <div className="bg-gradient-to-r from-[#117b6f] to-teal-400 h-full transition-all duration-1000" style={{ width: `${result.confidence}%` }}></div>
                       </div>
                     </div>
 
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
-                      <div className="flex items-center gap-2 text-teal-700 font-bold text-sm mb-2">
-                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                         Medical Insight
-                      </div>
-                      <p className="text-slate-600 text-sm leading-relaxed">{result.insight}</p>
+                    <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 italic text-slate-600 text-sm leading-relaxed">
+                      " {result.insight} "
                     </div>
-                    
-                    <p className="text-center text-[10px] text-gray-400 italic mt-6">
-                      Disclaimer: This is an AI-assisted analysis and not a substitute for professional medical advice.
-                    </p>
+                  </div>
+                  <button onClick={() => setShowResult(false)} className="mt-8 w-full py-4 border-2 border-slate-200 text-slate-500 font-bold rounded-2xl hover:bg-slate-50 transition-all">
+                    ทำการประเมินใหม่
+                  </button>
                 </div>
-
-                <button onClick={() => setShowResult(false)} className="w-full py-3 border-2 border-gray-200 text-gray-600 font-bold rounded-md hover:bg-gray-50 transition">
-                  Start New Assessment
-                </button>
               </div>
             )}
           </div>
         </section>
 
-        {/* ด้านขวา: ระบบแชตบอท */}
-        <aside className="w-[400px] bg-white border-l border-gray-200 flex flex-col">
-          <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-            <div className="bg-teal-50 p-2 rounded-lg text-teal-600">🤖</div>
-            <div>
-              <h3 className="font-bold text-slate-800 text-sm">Dr. AI Assistant</h3>
-              <p className="text-xs text-slate-400">Always online • AI Powered</p>
-            </div>
-          </div>
-          <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50/30">
-            <div className="flex gap-2">
-              <div className="bg-[#117b6f] text-white rounded-full h-8 w-8 flex items-center justify-center text-xs flex-shrink-0">✨</div>
-              <div className="bg-white border border-gray-200 p-3 rounded-2xl rounded-tl-none text-sm text-slate-700 shadow-sm">
-                {showResult 
-                  ? `Based on the analysis, this looks like ${result.label}. Would you like to know about treatments?` 
-                  : "Hello! I'm your Skin Health Assistant. Please upload a photo to start."}
+        {/* --- ส่วนขวา: ระบบแชตบอท (RAG) --- */}
+        <aside className="w-[450px] bg-white border-l border-slate-200 flex flex-col shadow-2xl z-10">
+          <div className="p-6 border-b bg-white flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center text-xl">🤖</div>
+              <div>
+                <h3 className="font-black text-slate-800 text-sm">Dr. AI Assistant</h3>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">เชื่อมต่อกับพอร์ต 5001 เรียบร้อย</p>
+                </div>
               </div>
             </div>
           </div>
-          <div className="p-4 border-t border-gray-100 bg-white">
-            <div className="relative">
-              <input type="text" placeholder="Type your question..." className="w-full bg-gray-50 border border-gray-200 rounded-full py-2.5 px-4 pr-12 text-sm focus:outline-none focus:border-teal-500" />
-              <button className="absolute right-1 top-1 bottom-1 bg-[#117b6f] text-white px-3 rounded-full">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+
+          <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50/30">
+            {messages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-[#117b6f] text-white rounded-tr-none font-medium' : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none font-medium'}`}>
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+
+          <form onSubmit={handleSendMessage} className="p-6 border-t bg-white">
+            <div className="relative flex items-center">
+              <input 
+                type="text" 
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="สอบถามข้อมูลสุขภาพผิว..." 
+                className="w-full bg-slate-100 border-none rounded-2xl py-4 px-6 pr-14 text-sm focus:ring-2 focus:ring-[#117b6f] transition-all" 
+              />
+              <button type="submit" className="absolute right-2 bg-[#117b6f] text-white p-2.5 rounded-xl hover:bg-[#0c5c53] shadow-lg transition-transform active:scale-90">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
               </button>
             </div>
-          </div>
+          </form>
         </aside>
       </main>
     </div>
