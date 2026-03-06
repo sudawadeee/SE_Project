@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// --- การตั้งค่า: ใส่เลข IP เครื่องคุณตรงนี้เพื่อให้มือถือเข้าได้ ---
-const YOUR_IP = '172.20.10.3'; 
-
-const CLASSIFICATION_URL = `http://172.20.10.3:5000`; // บริการตรวจโรค
-const CHATBOT_URL = `http://172.20.10.3:5001`;       // บริการแชตบอท
+// --- API URLs ---
+// ตั้งค่าผ่าน environment variables (.env.production) สำหรับ deploy
+// ถ้าไม่ตั้ง จะใช้ relative URL (สำหรับ dev กับ Nginx reverse proxy)
+const CLASSIFICATION_URL = import.meta.env.VITE_MODEL_URL || '';
+const CHATBOT_URL = import.meta.env.VITE_CHATBOT_URL || '';
 
 export default function App() {
   // สถานะสำหรับระบบตรวจโรค
